@@ -1,4 +1,3 @@
-# -*- coding:
 from enum import auto
 from CredentialParser.CredentialParser import ParsingMode
 import time
