@@ -1,8 +1,9 @@
+from argparse import FileType
 from CredentialParser.util import str_index
 from threading import Thread
 from enum import Enum
-from typing import Iterable, List, Optional
-
+from typing import Any, IO, Iterable, List, Optional
+from datetime import datetime, timedelta
 from CredentialParser.OutputHandler import OutputHandler, PrintHandler
 
 class ParsingMode(Enum):
@@ -12,12 +13,25 @@ class ParsingMode(Enum):
     LOWEST_INDEX = 2
     """Checks for all the delimeters and parses at the lowest index found"""
 
+    @classmethod
+    def mode_for_str(cls, modestr):
+        if modestr.lower() == "lowest_index":
+            return ParsingMode.LOWEST_INDEX
+        else:
+            return ParsingMode.FIRST_FOUND
+
+
 class CredentialParser(Thread):
 
     stop = False
-    
+    threads: List[Thread] = []
+
+    @classmethod
+    def active_threads(cls):
+        return [t for t in CredentialParser.threads if t.is_alive() and isinstance(t, CredentialParser)]
+
     def __init__(self,
-                 inputs: Iterable[str],
+                 filename: str,
                  delimiters: List[str]=[":", ";"],
                  num_values: int = 2,
                  parse_mode: ParsingMode = ParsingMode.FIRST_FOUND,
@@ -30,29 +44,55 @@ class CredentialParser(Thread):
                                                         show_count=True
                                                         )
                  ):
-        self.inputs = inputs
-        self.delimeters = delimiters
+        self.filename = filename
+        self.delimeters = [d.encode() for d in delimiters]
         self.num_values = num_values
         self.parse_mode = parse_mode
         self.output_handler = output_handler
         self.error_handler = error_handler
+        self.input_count = 0
+        self.processed_count = 0
         super().__init__()
+        self.starttime = None
+        CredentialParser.threads.append(self)
+        self.get_input_count()
+
+    def __str__(self):
+        return f"{self.filename}: {self.progress} | {self.percent_complete:.02f}%"
+
+    @property
+    def runtime(self) -> timedelta:
+        if self.starttime is None:
+            return timedelta(seconds=0)
+        return datetime.now() - self.starttime
+
+    @property
+    def percent_complete(self):
+        return self.processed_count / self.input_count * 100
+
+    @property
+    def progress(self):
+        return f"{self.processed_count}/{self.input_count}"
 
     def cleanup(self):
         """Called just before exiting."""
         self.output_handler.done()
         self.error_handler.done()
 
+    def get_input_count(self):
+        self.input_count = len(open(self.filename, 'rb').readlines())
 
     def run(self):
-        for val in self.inputs:
+        self.starttime = datetime.now()
+        for val in open(self.filename, "rb"):
             if self.stop:
                 break
             val = val.strip()
             self.parse(val)
+            self.processed_count += 1
         self.cleanup()
     
-    def get_delimeter(self, val) -> Optional[str]:
+    def get_delimeter(self, val) -> Optional[bytes]:
         if self.parse_mode == ParsingMode.FIRST_FOUND:
             for d in self.delimeters:
                 if d in val:

@@ -1,6 +1,6 @@
 
 
-def str_index(string: str, substr: str):
+def str_index(string: bytes, substr: bytes):
     try:
         i = string.index(substr)
         return i
