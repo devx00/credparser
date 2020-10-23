@@ -77,19 +77,22 @@ class PostgresHandler(OutputHandler):
                  querytemplate: str = "INSERT INTO {table} ({fields}) VALUES ({types})",
                  fieldnames: List[str] = ["username", "password"],
                  fieldtypes: Optional[List[str]] = None,
-                 autocommit: bool = False):
+                 autocommit: bool = False,
+                 commitfreq: int = None):
 
                 self.conn = psycopg2.connect(user=username, 
                                              password=password, 
                                              dbname=database,
                                              host=host, 
                                              port=port)
+                self.conn.set_session(autocommit=autocommit)
                 self.cursor = self.conn.cursor()
                 self.table = table
                 self.querytemplate = querytemplate
                 self.fieldnames = fieldnames
                 self.fieldtypes = fieldtypes if fieldtypes is not None else ["%s"] * len(self.fieldnames)
-                self.autocommit = autocommit
+                self.commitfreq = commitfreq
+                self.uncommitted = 0
                 super().__init__()
 
 
@@ -100,9 +103,14 @@ class PostgresHandler(OutputHandler):
                                           fields=fields, 
                                           types=types)
         self.cursor.execute(query, *args)
-        if self.autocommit:
-            self.conn.commit()
+        self.uncommitted += 1
+        self.check_commit()
     
+    def check_commit(self):
+        if self.commitfreq is not None and self.uncommitted >= self.commitfreq:
+            self.conn.commit()
+            self.commitfreq = 0
+        
     def done(self):
         self.conn.commit()
         self.cursor.close()
