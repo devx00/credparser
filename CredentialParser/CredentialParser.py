@@ -115,5 +115,18 @@ class CredentialParser(Thread):
         
         vals = val.split(delim)
         vals = vals[:self.num_values - 1] + [delim.join(vals[self.num_values - 1:])]
+        vals = self.attempt_decode(vals)
         self.output_handler(vals)
+
+    def attempt_decode(self, vals):
+        encodings = ['utf8', 'latin-1']
+        for enc in encodings:
+            try:
+                utfvals = [x.decode(enc) for x in vals]
+                if enc != "utf8":
+                    utfvals = [x.encode('utf8').decode('utf8') for x in utfvals]
+                return utfvals
+            except UnicodeDecodeError:
+                pass
+        return vals
         

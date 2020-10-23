@@ -1,6 +1,10 @@
-from threading import Lock
-from typing import List, Optional
+import logging
 import psycopg2
+from collections import deque
+from itertools import islice
+from threading import Lock
+from typing import Deque, List, Optional
+
 
 class OutputHandler:
 
@@ -86,6 +90,7 @@ class PostgresHandler(OutputHandler):
                                              host=host, 
                                              port=port)
                 self.conn.set_session(autocommit=autocommit)
+                self.autocommit = autocommit
                 self.cursor = self.conn.cursor()
                 self.table = table
                 self.querytemplate = querytemplate
@@ -93,26 +98,70 @@ class PostgresHandler(OutputHandler):
                 self.fieldtypes = fieldtypes if fieldtypes is not None else ["%s"] * len(self.fieldnames)
                 self.commitfreq = commitfreq
                 self.uncommitted = 0
+                self.history = deque([], (self.commitfreq or 1000) * 2)
+                self.prep_query()
                 super().__init__()
+
+    def prep_query(self):
+        fields = ",".join(self.fieldnames)
+        types = ",".join(self.fieldtypes)
+        self.query = self.querytemplate.format(table=self.table, 
+                                          fields=fields, 
+                                          types=types)
 
 
     def do_output(self, *args):
-        fields = ",".join(self.fieldnames)
-        types = ",".join(self.fieldtypes)
-        query = self.querytemplate.format(table=self.table, 
-                                          fields=fields, 
-                                          types=types)
-        self.cursor.execute(query, *args)
+        try:
+            params = args[0]
+            self.cursor.execute(self.query, params)
+            self.history.append(params)
+        except psycopg2.Error  as e:
+            logging.debug(f"Caught Error: {e}")
+            if not self.autocommit:
+                self.retry(self.uncommitted)
+            return
+        except UnicodeDecodeError as e:
+            print(f"{args[0]}")
+            logging.error(e)
+
         self.uncommitted += 1
         self.check_commit()
     
+    def do_commit(self):
+        logging.debug(f"Committing Transaction")
+        try:
+            self.conn.commit()
+        except psycopg2.Error as e:
+            logging.debug(f"Caught Error on Commit: {e}")
+
     def check_commit(self):
         if self.commitfreq is not None and self.uncommitted >= self.commitfreq:
-            self.conn.commit()
-            self.commitfreq = 0
+            self.do_commit()
+            self.uncommitted = 0
+    
+    def rollback(self):
+        logging.debug("Rolling Back Changes")
+        self.conn.rollback()
+
+    def retry(self, lastn):
+        if lastn == 0:
+            return
+        self.rollback()
+        logging.info(f"Retrying last {lastn} queries.")
+        last_hist = islice(self.history, len(self.history) - lastn, len(self.history))
+        for params in last_hist:
+            try:
+                self.cursor.execute(self.query, params)
+                self.conn.commit()
+                self.uncommitted = 0
+            except psycopg2.Error as e:
+                logging.debug(f"Failed retry of params: {params}. Not Retrying.\n{e}")
+            
+
         
     def done(self):
-        self.conn.commit()
+        logging.info(f"Exiting Postgres Handler")
+        self.do_commit()
         self.cursor.close()
         self.conn.close()
 
