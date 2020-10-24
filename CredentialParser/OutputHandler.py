@@ -4,6 +4,7 @@ from collections import deque
 from itertools import islice
 from threading import Lock
 from typing import Deque, List, Optional
+import logging
 
 
 class OutputHandler:
@@ -32,6 +33,38 @@ class OutputHandler:
     def done(self):
         """Called just before exiting"""
         pass
+
+class LoggingHandler(OutputHandler):
+    def __init__(self,
+                 scope_name="Debug",
+                 output_formatter=lambda args: ", ".join(args),
+                 arg_formatter=lambda arg: str(arg),
+                 show_count=False,
+                 log_level = logging.DEBUG
+                 ):
+        self.log_level = log_level
+        self.scope_name = scope_name
+        self.output_formatter = output_formatter
+        self.arg_formatter = arg_formatter
+        self.show_count = show_count
+        super().__init__()
+
+    def do_output(self, *args, **kwargs):
+        formatted_args = [self.arg_formatter(arg) for arg in args]
+        output = ""
+        if self.show_count or self.scope_name is not None:
+            header_parts = []
+            if self.scope_name is not None:
+                header_parts.append(self.scope_name)
+            if self.show_count:
+                header_parts.append(f"{self.output_count}")
+            header = " ".join(header_parts)
+            output += f"[{header}] "
+
+        output += self.output_formatter(formatted_args)
+        logging.log(self.log_level, output)
+
+
 
 
 class PrintHandler(OutputHandler):

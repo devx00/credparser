@@ -4,7 +4,7 @@ from threading import Thread
 from enum import Enum
 from typing import Any, IO, Iterable, List, Optional
 from datetime import datetime, timedelta
-from CredentialParser.OutputHandler import OutputHandler, PrintHandler
+from CredentialParser.OutputHandler import LoggingHandler, OutputHandler, PrintHandler
 
 class ParsingMode(Enum):
     FIRST_FOUND = 1
@@ -39,8 +39,8 @@ class CredentialParser(Thread):
                                                     scope_name="Output",
                                                     show_count=True
                                                 ),
-                 error_handler: OutputHandler = PrintHandler(
-                                                        scope_name="Error", 
+                 error_handler: OutputHandler = LoggingHandler(
+                                                        scope_name="Debug", 
                                                         show_count=True
                                                         )
                  ):

@@ -1,3 +1,4 @@
+from CredentialParser.OutputHandler import LoggingHandler
 from enum import auto
 from CredentialParser.CredentialParser import ParsingMode
 import time
@@ -65,8 +66,9 @@ def main():
                               port=args.port,
                               commitfreq=args.commit_freq,
                               autocommit=args.autocommit)
+    err_handler = LoggingHandler("Debug", log_level=logging.DEBUG)
     for f in args.files:
-        c = CredentialParser(f, output_handler=handler, parse_mode=ParsingMode.mode_for_str(args.mode), delimiters=args.delimeters)
+        c = CredentialParser(f, output_handler=handler, parse_mode=ParsingMode.mode_for_str(args.mode), delimiters=args.delimeters, error_handler=err_handler)
         c.start()
     progress()
     
