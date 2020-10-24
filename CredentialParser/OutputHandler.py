@@ -12,9 +12,18 @@ class OutputHandler:
     def __init__(self, lock=Lock()):
         self.output_count = 0
         self.lock = lock
+        self.attached_count = 0
 
     def __call__(self, *args, **kwargs):
         self.output(*args, **kwargs)
+
+    def attach(self):
+        self.attached_count += 1
+    
+    def detach(self):
+        self.attached_count -= 1
+        if self.attached_count == 0:
+            self.done()
 
     def output(self, *args, **kwargs):
         """Do not override this unless you implement thread safety yourself."""

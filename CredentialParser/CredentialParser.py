@@ -55,6 +55,8 @@ class CredentialParser(Thread):
         super().__init__()
         self.starttime = None
         CredentialParser.threads.append(self)
+        self.output_handler.attach()
+        self.error_handler.attach()
         self.get_input_count()
 
     def __str__(self):
@@ -76,8 +78,8 @@ class CredentialParser(Thread):
 
     def cleanup(self):
         """Called just before exiting."""
-        self.output_handler.done()
-        self.error_handler.done()
+        self.output_handler.detach()
+        self.error_handler.detach()
 
     def get_input_count(self):
         self.input_count = len(open(self.filename, 'rb').readlines())
