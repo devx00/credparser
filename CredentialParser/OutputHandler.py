@@ -6,7 +6,6 @@ from threading import Lock
 from typing import Deque, List, Optional
 import logging
 
-
 class OutputHandler:
 
     def __init__(self, lock=Lock()):
@@ -14,8 +13,8 @@ class OutputHandler:
         self.lock = lock
         self.attached_count = 0
 
-    def __call__(self, *args, **kwargs):
-        self.output(*args, **kwargs)
+    def __call__(self, params):
+        self.output(params)
 
     def attach(self):
         self.attached_count += 1
@@ -25,19 +24,19 @@ class OutputHandler:
         if self.attached_count == 0:
             self.done()
 
-    def output(self, *args, **kwargs):
+    def output(self, params):
         """Do not override this unless you implement thread safety yourself."""
         self.lock.acquire()
         self.output_count += 1
-        self.do_output(*args, **kwargs)
+        self.do_output(params)
         self.lock.release()
 
-    def do_output(self, *args, **kwargs):
+    def do_output(self, params):
         """Handle the actual output. 
         
         Override this method to create a custom OutputHandler.
         """
-        print(f"[Debug] Not Outputting {args}  {kwargs}")
+        print(f"[Debug] Not Outputting {params}")
 
     def done(self):
         """Called just before exiting"""
@@ -58,8 +57,8 @@ class LoggingHandler(OutputHandler):
         self.show_count = show_count
         super().__init__()
 
-    def do_output(self, *args, **kwargs):
-        formatted_args = [self.arg_formatter(arg) for arg in args]
+    def do_output(self, params):
+        formatted_args = [self.arg_formatter(arg) for arg in params]
         output = ""
         if self.show_count or self.scope_name is not None:
             header_parts = []
@@ -95,7 +94,7 @@ class PrintHandler(OutputHandler):
         self.print_kwargs = print_kwargs
         super().__init__(PrintHandler.lock)
 
-    def do_output(self, *args):
+    def do_output(self, args):
         formatted_args = [self.arg_formatter(arg) for arg in args]
         output = ""
         if self.show_count or self.scope_name is not None:
@@ -110,6 +109,22 @@ class PrintHandler(OutputHandler):
         output += self.output_formatter(formatted_args)
         print(output, *self.print_args, **self.print_kwargs)
 
+
+class FileHandler(OutputHandler):
+    def __init__(self,
+                 filename,
+                 filemode="a",
+                 delimiter="\t"):
+        self.file = open(filename, filemode)
+        self.delimiter = delimiter
+        super().__init__()
+
+    def do_output(self, params):
+        line = self.delimiter.join(params)
+        self.file.write(f"{line}\n")
+
+    def done(self):
+        self.file.close()
 
 class PostgresHandler(OutputHandler):
 
@@ -126,23 +141,23 @@ class PostgresHandler(OutputHandler):
                  autocommit: bool = False,
                  commitfreq: int = None):
 
-                self.conn = psycopg2.connect(user=username, 
-                                             password=password, 
-                                             dbname=database,
-                                             host=host, 
-                                             port=port)
-                self.conn.set_session(autocommit=autocommit)
-                self.autocommit = autocommit
-                self.cursor = self.conn.cursor()
-                self.table = table
-                self.querytemplate = querytemplate
-                self.fieldnames = fieldnames
-                self.fieldtypes = fieldtypes if fieldtypes is not None else ["%s"] * len(self.fieldnames)
-                self.commitfreq = commitfreq
-                self.uncommitted = 0
-                self.history = deque([], (self.commitfreq or 1000) * 2)
-                self.prep_query()
-                super().__init__()
+        self.conn = psycopg2.connect(user=username, 
+                                        password=password, 
+                                        dbname=database,
+                                        host=host, 
+                                        port=port)
+        self.conn.set_session(autocommit=autocommit)
+        self.autocommit = autocommit
+        self.cursor = self.conn.cursor()
+        self.table = table
+        self.querytemplate = querytemplate
+        self.fieldnames = fieldnames
+        self.fieldtypes = fieldtypes if fieldtypes is not None else ["%s"] * len(self.fieldnames)
+        self.commitfreq = commitfreq
+        self.uncommitted = 0
+        self.history = deque([], (self.commitfreq or 1000) * 2)
+        self.prep_query()
+        super().__init__()
 
     def prep_query(self):
         fields = ",".join(self.fieldnames)
@@ -152,18 +167,18 @@ class PostgresHandler(OutputHandler):
                                           types=types)
 
 
-    def do_output(self, *args):
+    def do_output(self, params):
         try:
-            params = args[0]
             self.cursor.execute(self.query, params)
-            self.history.append(params)
+            if not self.autocommit:
+                self.history.append(params)
         except psycopg2.Error  as e:
             logging.debug(f"Caught Error: {e}")
             if not self.autocommit:
                 self.retry(self.uncommitted)
             return
         except UnicodeDecodeError as e:
-            print(f"{args[0]}")
+            print(f"{params}")
             logging.error(e)
 
         self.uncommitted += 1
@@ -177,6 +192,8 @@ class PostgresHandler(OutputHandler):
             logging.debug(f"Caught Error on Commit: {e}")
 
     def check_commit(self):
+        if self.autocommit:
+            return
         if self.commitfreq is not None and self.uncommitted >= self.commitfreq:
             self.do_commit()
             self.uncommitted = 0
